@@ -6,24 +6,23 @@ from __future__ import division, print_function
 import argparse
 from covid_pipeline import config, create_net, run_model
 from keras.models import model_from_json
-from covid_pipeline import  regularization 
+from covid_pipeline import  regularization
 import numpy as np
 from sklearn.metrics import roc_curve, auc
 from covid_pipeline.regularization import data_augmentation
 
 class store_model:
 
-	def __init__ (self) :
-		args = config.parse_arguments()
-		self.store_model_path=args.store_txt
-		self.classes=args.classes
-		self.loss_main=args.loss_main
-		#self.loss_roi=args.loss_roi
-		self.width=args.width
-		self.height=args.height
-		self.model_name=args.main_model	
-		self.type_analysis=args.type_analysis
-
+        def __init__ (self) :
+                args = config.parse_arguments()
+                self.store_model_path=args.store_txt
+                self.classes=args.classes
+                self.loss_main=args.loss_main
+                #self.loss_roi=args.loss_roi
+                self.width=args.width
+                self.height=args.height
+                self.model_name=args.main_model
+                self.type_analysis=args.type_analysis
 
 	def set_model(self,name_model_json, name_model_h5, model_weights):
 
@@ -47,40 +46,48 @@ class store_model:
 		print("Loaded model from disk")
 		return loaded_model
 
-	def load_best_callback(self,X,Y,case, weight_name):
-		Xaug, Yaug= [], []
-		for i in data_augmentation(X,Y):
-			Xaug.append(i[0])
-			Yaug.append(i[1])
-		image, mask= np.asarray(Xaug) , np.asarray(Yaug)
-		if self.type_analysis=='SE':
-			_, _, height, width, channels = image.shape					
-			_, _, classes, _ ,_ = mask.shape
-		else:
-			_, _, height, width, channels = image.shape
-			_, _, classes = mask.shape
+        def load_best_callback(self,model_structure,X,Y,case, weight_name):
+                Xaug, Yaug= [], []
+                for i in data_augmentation(X,Y):
+                        Xaug.append(i[0])
+                        Yaug.append(i[1])
+                image, mask= np.asarray(Xaug) , np.asarray(Yaug)
+                if self.type_analysis=='SE':
+                        _, _, height, width, channels = image.shape
+                        _, _, classes, _ ,_ = mask.shape
+                else:
+                     	_, _, height, width, channels = image.shape
+                        _, _, classes = mask.shape
 
-		cn=create_net.create_net(case)
-		model_structure=cn.net([], [], weight_name, self.height, channels,(classes),self.width)
-		print('load weights')
-		model_structure.load_weights(self.store_model_path + '/weights_%s_%s.h5' %(weight_name,case))
-		print("Load model from: ")
-		file_store=(self.store_model_path + '/weights_%s_%s.h5' %(weight_name,case))#hdf5
-		print(file_store)
-		rm=run_model.run_model(case)
+                cn=create_net.create_net(case)
+                print('load weights')
+                #model_structure.load_weights(self.store_model_path + '/weights_%s_%s.h5' %(weight_name,case))
+                print("Load model from: ")
 
-		fpr,tpr,aucp=dict(),dict(),dict()
-		thresholds=0
-		if self.type_analysis=='SE':
-			pred, metric=rm.run_testing(self.loss_main,model_structure, X, Y)				
-			return pred, metric
-		else:
-			
-			y_pred_keras = model_structure.predict(X) #.ravel()
-			print(np.array(y_pred_keras.shape))
-			y_pred_keras=np.array(y_pred_keras)
-			print((y_pred_keras.shape[1]))
-			for i in range(np.array(y_pred_keras.shape[1])):
-				fpr[i], tpr[i], thresholds = roc_curve(Y[:,i], y_pred_keras[:,i])
-				aucp[i] = auc(fpr[i], tpr[i])
-			return fpr, tpr, aucp
+                file_store=(self.store_model_path + '/weights_%s_%s.h5' %(weight_name,case))#hdf5
+                print(file_store)
+                model_structure.load_weights(file_store)
+                rm=run_model.run_model(case)
+                fpr,tpr,aucp=dict(),dict(),dict()
+                thresholds=0
+                if self.type_analysis=='SE':
+                        pred, metric=rm.run_testing(self.loss_main,model_structure, X, Y)
+                        return pred, metric
+                else:
+
+                        y_pred_keras = model_structure.predict(X) #.ravel()
+                        print(np.array(y_pred_keras.shape))
+                        print('before the discretization')
+                        print((y_pred_keras[4,:]))
+                        y_pred=np.array(y_pred_keras)
+                        y_pred_keras=np.array(y_pred_keras)
+                        y_pred_keras2=np.absolute(np.array(y_pred_keras)/np.max(y_pred_keras))
+                        y_pred_keras2[np.arange(len(y_pred_keras)), y_pred_keras.argmax(1)] = 1
+                        print((y_pred_keras[4,:]))
+                        y_pred_keras=np.where(y_pred_keras2 !=1, 0, 1) #change to predict continious
+                        print('after:')
+                        print((y_pred_keras[4,:]))
+                        for i in range(np.array(y_pred_keras.shape[1])):
+                                fpr[i], tpr[i], thresholds = roc_curve(Y[:,i], y_pred_keras2[:,i])
+                                aucp[i] = auc(fpr[i], tpr[i])
+                        return fpr, tpr, aucp, y_pred_keras
