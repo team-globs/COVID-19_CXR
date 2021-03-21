@@ -4,7 +4,7 @@ A new deep learning classifier. The network consists of the existing DenseNet-12
 
 Install guidance:
 1) fork the code
-2) cd 
+2) cd .
 3) pip instal .
 4) cite the paper(doi:)
 
