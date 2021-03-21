@@ -1,5 +1,5 @@
 #Author: Michail Mamalakis
-#Version: 0.1
+#Version: 0.2
 #Licence:
 #email:mmamalakis1@sheffield.ac.uk
 #Acknowledgement: https://github.com/ece7048/cardiac-segmentation-1/blob/master/rvseg/loss.py
@@ -14,7 +14,7 @@ from tensorflow.keras.metrics import binary_accuracy
 from keras.optimizers import SGD, RMSprop, Adagrad, Adadelta, Adam, Adamax, Nadam
 from covid_pipeline import config, regularization, handle_data
 from keras.preprocessing.image import ImageDataGenerator
-from covid_pipeline import regularization
+from covid_pipeline import create_net, regularization
 from keras import losses, optimizers, utils, metrics
 from keras.utils import multi_gpu_model, np_utils
 from keras.callbacks import ModelCheckpoint, EarlyStopping, Callback, LearningRateScheduler
@@ -28,7 +28,7 @@ import os
 import argparse
 from keras.objectives import *
 from keras import utils
-from covid_pipeline import losses_distance
+from covid_pipeline import main, losses_distance
 
 class run_model:
 ##################################################### INITIALIZATION ##########################################################
@@ -61,6 +61,12 @@ class run_model:
 		self.lrate=args.learning_rate
 		self.store_model_path=args.store_txt
 		self.main_model=args.main_model
+		self.width=args.width
+		self.height=args.height
+		self.channels=args.channels
+		self.classes=args.classes
+		self.main_model=args.main_model
+
 		if(args.decay==666):
 			self.exponential_decay='True'
 			args.decay=0
@@ -112,18 +118,19 @@ class run_model:
 		self.model_json = model_structure.to_json()
 		self.callbacks=self.callbacks_define(self.monitor, self.weight_name)
 		#validation data
+		cn=create_net.create_net(self.main_model)
 		if self.validation=='on':
 			for cross_val_num in range(int(self.cross_validation_number)):
 				print("cross validation run: ", cross_val_num, "/", int(self.cross_validation_number))
 				if cross_val_num!=0:
-					#model_structure.load_weights(self.store_model_path + '/weights_%s_%s.tf' %(self.path_case, self.weight_name))
+					model_structure=cn.net([], [], self.path_case , self.height, self.channels,(self.classes), self.width) 
 					rng_state = np.random.get_state()
 					np.random.shuffle(X)
 					np.random.set_state(rng_state)
 					np.random.shuffle(Y)
 					model_structure.compile(optimizer=self.optimizer,loss=loss, metrics=metrics_algorithm)
 					self.callbacks=self.callbacks_define(self.monitor,( self.weight_name+'_'+str(cross_val_num)))
-
+					
 				h_d=handle_data.handle_data(X,Y,self.path_case)
 
 				training_augment, train_steps_per_epoch, validation_augment, val_steps_per_epoch =h_d.validation_data()
@@ -133,7 +140,19 @@ class run_model:
 				if self.ram=='MPU':  
 					self.batch_size=self.batch_size
 					history = model_structure.fit_generator(training_augment, epochs=self.epochs, steps_per_epoch=train_steps_per_epoch,verbose=1, callbacks=self.callbacks, validation_data=validation_augment, validation_steps=val_steps_per_epoch,workers=self.num_cores,use_multiprocessing=True)      
-
+				#call test for evaluate results..P.S. need modification this part: TODDO!!!!
+				mn=main.main(self.path_case)
+				print(h_d.Xval.shape,h_d.Yval.shape)
+				mn.X=np.array(h_d.Xval)
+				mn.Y=np.array(h_d.Yval)
+				print('test output')
+				print(mn.X[1,:,:,1], mn.Y[1,:])
+				filepath=str(self.weight_name+'_'+str(cross_val_num))
+				file=str(self.weight_name)
+				if cross_val_num!=0:
+					mn.test_run(model_structure, [filepath],'/fastdata/mer17mm/private/Data/',['tuberculosis','pneumonia','healthy','COVID-19'],2)
+				else:
+					mn.test_run(model_structure, [file],'/fastdata/mer17mm/private/Data/',['tuberculosis','pneumonia','healthy','COVID-19'],2)
 		else:
 			h_d2=handle_data.handle_data(X,Y,self.path_case)
 			training_augment, train_steps_per_epoch =h_d2.no_validation_data()
@@ -142,6 +161,11 @@ class run_model:
 			if self.ram=='MPU':
 				self.batch_size=self.batch_size 
 				history = model_structure.fit_generator(training_augment, epochs=self.epochs, steps_per_epoch=train_steps_per_epoch, verbose=1, callbacks=self.callbacks,workers=self.num_cores,use_multiprocessing=True)   
+			mn=main.main(self.path_case)
+			mn.Y=np.array(h_d2.Y)
+			mn.X=np.array(h_d2.X)
+			print(h_d2.X.shape,h_d2.Y.shape)
+			mn.test_run(model_structure, [file],'/fastdata/mer17mm/private/Data/',['tuberculosis','COVID-19','healthy','pneumonia'],2)
 
 
 		return model_structure, history
@@ -605,4 +629,6 @@ class run_model:
 		tp = K.sum(y_true * y_pred)
 		sensitivity = tp / (tp + fn + K.epsilon())
 		return sensitivity
+
+
 
